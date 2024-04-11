@@ -21,10 +21,16 @@ function New-ShareShieldSecret {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true, ValueFromPipeline=$true, Position=0)]
-        [string]$Secret,
-        [Parameter(Mandatory = $false)]
-        [ValidateSet(1,3,7)]
+        [ValidateNotNullOrEmpty()]
+        [object]$Secret,
+
+        [Parameter(Mandatory = $false, Position = 1)]
+        [ValidateSet(1, 3, 7)]
         [int]$ExpiresInDays = 1,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$AsPlainText,
+
         [Parameter(Mandatory = $false)]
         [switch]$IdOnly
     )
@@ -41,13 +47,25 @@ function New-ShareShieldSecret {
         $apiUrl = "https://api.shareshield.net/v1/secrets"
         $headers = @{
             "Authorization" = "Bearer $token"
-            "Content-Type" = "application/json"
+            "Content-Type"  = "application/json"
         }
 
         $body = @{
             "password" = $Secret
-            "expiry" = $ExpiresInDays
-            "showUrl" = $true
+            "expiry"   = $ExpiresInDays
+            "showUrl"  = $true
+        }
+
+        # If secret is a secure string, convert to plain text
+        if ($Secret.GetType().Name -eq "SecureString") {
+            $Secret = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secret))
+        }
+        elseif ($AsPlainText) {
+            $Secret = $Secret.ToString()
+        }
+        else {
+            Write-Error "Secret must be a secure string or use the -AsPlainText switch to convert to plain text."
+            return
         }
 
         # Send API request
@@ -58,8 +76,11 @@ function New-ShareShieldSecret {
             Write-Error "Couldn't create secret: $($_.Exception.Message)"
         }
 
-        if($null -ne $response) {
-            # Return secret id or url
+        # Clear secret from memory as soon as possible for security
+        $Secret = $null
+
+        # Return secret id or url
+        if ($null -ne $response) {
             if ($IdOnly) {
                 $secretLinks += [PSCustomObject]@{
                     Id = ($response.url.replace('https://app.shareshield.net/', ''))
